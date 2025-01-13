@@ -102,7 +102,8 @@ def status(vd, *args, priority=0):
 
     source = vd.getStatusSource()
 
-    if not vd.cursesEnabled:
+    # reed : disable printing to stderr
+    if False and not vd.cursesEnabled:
         msg = '\r' + composeStatus(args)
         if vd.options.debug:
             msg += f' [{source}]'
