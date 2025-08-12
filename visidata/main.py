@@ -181,7 +181,8 @@ def main_vd():
     if '-h' in sys.argv or '--help' in sys.argv:
         print((Path(vd.pkg_resources_files(visidata)) / 'man' / 'vd.txt').open().read())
         return 0
-    vd.status(__version_info__)
+    # personal preference, I don't want to see version info in the greeting
+    # vd.status(__version_info__)
 
     try:
         locale.setlocale(locale.LC_ALL, '')
@@ -283,7 +284,8 @@ def main_vd():
     vd._stdin.close = vd.nop  #1759
 
     # fetch motd *after* options parsing/setting
-    vd.domotd()
+    # personal preference, I don't want to see the motd
+    # vd.domotd()
 
     if args.batch:
         if not vd.options.interactive:
