@@ -7,13 +7,21 @@ import tempfile
 import functools
 import os
 import itertools
+import platform
 
 from visidata import VisiData, vd, asyncthread, SettableColumn
 from visidata import Sheet, Path, Column
 
-if sys.platform == 'win32':
+if (
+    # Windows
+    sys.platform == 'win32'
+    # WSL 2
+    or "microsoft-standard-WSL2" in platform.uname().release
+    # WSL 1
+    or sys.platform == 'linux' and platform.uname().release.endswith("-Microsoft")
+):
     syscopy_cmd_default = 'clip.exe'
-    syspaste_cmd_default = 'powershell -command Get-Clipboard'
+    syspaste_cmd_default = 'powershell.exe -noprofile -command Get-Clipboard'
 elif sys.platform == 'darwin':
     syscopy_cmd_default = 'pbcopy w'
     syspaste_cmd_default = 'pbpaste'
@@ -195,9 +203,16 @@ Sheet.addCommand('gzp', 'setcol-clipboard', 'setColClipboard()', 'set cells of c
 
 Sheet.addCommand('y', 'syscopy-row', 'syscopyCells(visibleCols, [cursorRow])', 'yank (copy) current row to system clipboard (using options.clipboard_copy_cmd)')
 
+<<<<<<< HEAD
 Sheet.addCommand('gy', 'syscopy-selected', 'syscopyCells(visibleCols, onlySelectedRows)', 'yank (copy) selected rows to system clipboard (using options.clipboard_copy_cmd)')
 Sheet.addCommand('zy', 'syscopy-cell', 'syscopyValue(cursorDisplay)', 'yank (copy) current cell to system clipboard (using options.clipboard_copy_cmd)')
 Sheet.addCommand('gzy', 'syscopy-cells', 'syscopyCells([cursorCol], onlySelectedRows, filetype="txt")', 'yank (copy) contents of current column from selected rows to system clipboard (using options.clipboard_copy_cmd')
+=======
+Sheet.addCommand('gY', 'syscopy-selected', 'syscopyCells(visibleCols, onlySelectedRows)', 'yank (copy) selected rows to system clipboard (using options.clipboard_copy_cmd)')
+Sheet.addCommand('zY', 'syscopy-cell', 'syscopyValue(cursorDisplay)', 'yank (copy) current cell to system clipboard (using options.clipboard_copy_cmd)')
+Sheet.addCommand('', 'syscopy-colname', 'syscopyValue(cursorCol.name)', 'yank (copy) current column header to system clipboard (using options.clipboard_copy_cmd)')
+Sheet.addCommand('gzY', 'syscopy-cells', 'syscopyCells([cursorCol], onlySelectedRows, filetype="txt")', 'yank (copy) contents of current column from selected rows to system clipboard (using options.clipboard_copy_cmd')
+>>>>>>> develop
 
 Sheet.addCommand('x', 'cut-row', 'copyRows([sheet.delete_row(cursorRowIndex)]); defer and cursorDown(1)', 'delete (cut) current row and move it to clipboard')
 Sheet.addCommand('gx', 'cut-selected', 'copyRows(onlySelectedRows); deleteSelected()', 'delete (cut) selected rows and move them to clipboard')

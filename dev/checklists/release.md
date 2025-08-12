@@ -25,6 +25,8 @@
 
    a. add to front of CHANGELOG, along with the release date and bullet points of major changes;
 
+     git log --pretty=format:"%s :%ae" $(git tag | tail -1)..HEAD
+
    b. update the date in the manpage;
 
    c. update version number on README
@@ -74,6 +76,7 @@
   Push to pypi
     ```
     rm -rf dist/
+    rm -rf build/
     python3 setup.py sdist bdist_wheel
     chmod -R a+rX dist
     ls dist/

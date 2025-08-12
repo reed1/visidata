@@ -270,6 +270,27 @@ def asyncsingle(func):
     _execAsync.searchThread = None
     return _execAsync
 
+def asyncsingle_queue(func):
+    '''Function decorator like `@asyncthread` but as a singleton.  When called, `func(...)` spawns a new thread, and waits for the end of any previous thread still running *func*.
+    ``vd.sync()`` does wait for unfinished asyncsingle_queue threads, which is an important difference from asyncsingle.
+    '''
+    @functools.wraps(func)
+    def _execAsync(*args, **kwargs):
+        def _func(*args, **kwargs):
+            func(*args, **kwargs)
+            _execAsync.searchThread = None
+            # end of thread
+
+        # cancel previous thread if running
+        if _execAsync.searchThread:
+            vd.sync(_execAsync.searchThread)
+
+        _func.__name__ = func.__name__ # otherwise, the the thread's name is '_func'
+
+        _execAsync.searchThread = vd.execAsync(_func, *args, **kwargs)
+    _execAsync.searchThread = None
+    return _execAsync
+
 @VisiData.property
 def unfinishedThreads(self):
     'A list of unfinished threads (those without a recorded `endTime`).'
@@ -319,13 +340,14 @@ def open_pyprof(vd, p):
 @VisiData.api
 def toggleProfiling(vd):
     t = threading.current_thread()
-    if not t.profile:
-        t.profile = cProfile.Profile()
+    if not vd.options.profile:
+        if not t.profile:
+            t.profile = cProfile.Profile()
         t.profile.enable()
-        if not vd.options.profile:
-            vd.options.set('profile', True)
+        vd.options.set('profile', True)
     else:
-        t.profile.disable()
+        if t.profile:
+            t.profile.disable()
         vd.options.set('profile', False)
     vd.status('profiling ' + ('ON' if vd.options.profile else 'OFF'))
 
@@ -337,7 +359,10 @@ class ThreadProfiler:
 
     def __enter__(self):
         if vd.options.profile:
-            self.thread.profile.enable()
+            try:
+                self.thread.profile.enable()
+            except ValueError: #"ValueError: Another profiling tool is already active"
+                pass
         return self
 
     def __exit__(self, exc_type, exc_val, tb):
@@ -381,6 +406,7 @@ class ProfileSheet(Sheet):
     ]
 
     nKeys=3
+    _ordering = [('inlinetime_us', True)]  # initially sort by inlinetime descending
 
     def reload(self):
         if isinstance(self.source, cProfile.Profile):
@@ -388,7 +414,6 @@ class ProfileSheet(Sheet):
         else:
             self.rows = self.source
 
-        self.orderBy(None, self.column('inlinetime_us'), reverse=True)
         self.callers = collections.defaultdict(list)  # [row.code] -> list(code)
 
         for r in self.rows:
@@ -435,6 +460,10 @@ def codestr(code):
     return code.co_name
 
 
+@VisiData.lazy_property
+def allThreadsSheet(self):
+    return ThreadsSheet("threads", source=vd.threads)
+
 ThreadsSheet.addCommand('^C', 'cancel-thread', 'cancelThread(cursorRow)', 'abort thread at current row')
 ThreadsSheet.addCommand('g^C', 'cancel-all', 'cancelThread(*sheet.rows)', 'abort all threads on this threads sheet')
 ThreadsSheet.addCommand(None, 'add-row', 'fail("cannot add new rows on Threads Sheet")', 'invalid command')
@@ -449,7 +478,7 @@ BaseSheet.addCommand('^C', 'cancel-sheet', 'cancelThread(*sheet.currentThreads o
 BaseSheet.addCommand('g^C', 'cancel-all', 'liveThreads=list(t for vs in vd.sheets for t in vs.currentThreads); cancelThread(*liveThreads); status("canceled %s threads" % len(liveThreads))', 'abort all spawned threads')
 
 
-BaseSheet.addCommand('^T', 'threads-all', 'vd.push(ThreadsSheet("threads", source=vd.threads))', 'open Threads for all sheets')
+BaseSheet.addCommand('^T', 'threads-all', 'vd.push(vd.allThreadsSheet)', 'open Threads for all sheets')
 BaseSheet.addCommand('z^T', 'threads-sheet', 'vd.push(ThreadsSheet("threads", source=sheet.currentThreads))', 'open Threads for this sheet')
 
 vd.addGlobals({
@@ -457,6 +486,7 @@ vd.addGlobals({
     'Progress': Progress,
     'asynccache': asynccache,
     'asyncsingle': asyncsingle,
+    'asyncsingle_queue': asyncsingle_queue,
     'asyncignore': asyncignore,
 })
 

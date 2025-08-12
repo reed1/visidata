@@ -40,12 +40,14 @@ jobs:
     - name: Ensure VisiData can load a dir
       run: vd . --batch
 
-    - name: Install lxml dependencies
-      run: sudo apt install -y libxml2-dev libxslt-dev
-
-    - name: Install ping dependencies
-      run: sudo apt install -y traceroute
-
+# Apt packages are slow to install, often taking up to a minute.
+# lxml dependencies are unneeded when installing lxml via pip
+#    - name: Install lxml dependencies
+#      run: sudo apt install -y libxml2-dev libxslt-dev
+# only needed for testing open-ping, which isn't tested currently anyway
+#    - name: Install ping dependencies
+#      run: sudo apt install -y traceroute
+#
     - name: Install optional dependencies
       run: |
         pip3 install ".[test]"
@@ -55,15 +57,15 @@ jobs:
       run: |
         pytest -sv visidata/tests/
 
-    - name: Run Cmdlog Tests
-      run: dev/test.sh
+    - name: Run Cmdlog Tests in parallel
+      run: dev/test.sh -j 4
       shell: bash
 
     - name: Test macros
       run: |
         mkdir -p ~/.visidata
         cp tests/macros/macros.jsonl tests/macros/1.vdj ~/.visidata/
-        vd --batch -p tests/macros/test_macro.vd --output tests/macros/golden/test_macro.tsv
+        vd --batch --visidata-dir ~/.visidata -p tests/macros/test_macro.vd --output tests/macros/golden/test_macro.tsv
         git --no-pager diff --numstat tests/
         git --no-pager diff --exit-code tests/
 

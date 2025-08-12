@@ -85,6 +85,8 @@ def getDefaultSaveName(sheet):
     if hasattr(src, 'scheme') and src.scheme:
         return src.name + src.suffix
     if isinstance(src, Path):
+        if src.given == '-':
+            return f'stdin.{sheet.options.save_filetype}'
         if sheet.options.is_set('save_filetype', sheet):
             # if save_filetype is over-ridden from default, use it as the extension
             return str(src.with_suffix('')) + '.' + sheet.options.save_filetype
@@ -109,7 +111,9 @@ def saveCols(vd, cols):
 
 @VisiData.api
 def saveSheets(vd, givenpath, *vsheets, confirm_overwrite=True):
-    'Save all *vsheets* to *givenpath*.'
+    '''Save all *vsheets* to *givenpath*. Async.
+    Callers should be careful not to call reload() while saveSheets is still running.
+    Use vd.sync(saveSheets) to wait for the save to finish.'''
 
     if not vsheets: # blank tuple
         vd.warning('no sheets to save')
@@ -132,7 +136,7 @@ def saveSheets(vd, givenpath, *vsheets, confirm_overwrite=True):
             break
 
     if savefunc is None:
-        vd.fail(f'no function to save as {filetype}')
+        vd.fail(f'no function to save as {", ".join(filetypes)}')
 
     if confirm_overwrite:
         vd.confirmOverwrite(givenpath)

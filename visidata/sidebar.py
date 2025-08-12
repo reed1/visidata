@@ -33,7 +33,7 @@ class AddedHelp:
             vd.clearCaches()
 
 
-@BaseSheet.property
+@BaseSheet.lazy_property
 def formatter_helpstr(sheet):
     return AttrDict(commands=CommandHelpGetter(type(sheet)),
                     options=OptionHelpGetter())
@@ -111,7 +111,7 @@ def drawSidebar(vd, scr, sheet):
     bottommsg = ''
     overflowmsg = '[:reverse] Ctrl+P to view all status messages [/]'
     try:
-        if not sidebar and vd.options.disp_sidebar and vd.disp_help >= 0:
+        if not sidebar and vd.options.disp_sidebar and vd.disp_help >= 0 and sheet.help_sidebars:
             sidebar, title = sheet.help_sidebars[vd.disp_help%len(sheet.help_sidebars)]()
 
 #            bottommsg = sheet.formatString('[:onclick sidebar-toggle][:reverse] {help.commands.sidebar_toggle} [:]', help=sheet.formatter_helpstr)
@@ -130,7 +130,7 @@ def drawSidebar(vd, scr, sheet):
 def drawSidebarText(sheet, scr, text:Union[None,str,'HelpPane'], title:str='', overflowmsg:str='', bottommsg:str=''):
     scrh, scrw = scr.getmaxyx()
     maxw = sheet.options.disp_sidebar_width or scrw//2
-    maxh = sheet.options.disp_sidebar_height or scrh-2
+    maxh = sheet.options.disp_sidebar_height or max(scrh-2, 1)
 
     cattr = colors.get_color('color_sidebar')
 
@@ -158,6 +158,7 @@ def drawSidebarText(sheet, scr, text:Union[None,str,'HelpPane'], title:str='', o
         if lines:
             maxlinew = max(maxlinew, max(dispwidth(textonly, maxwidth=maxw) for line, textonly in lines))
         winh = min(maxh, len(lines)+2)
+    winh = max(winh, 1)
 
     titlew = dispwidth(title)
 
@@ -166,6 +167,7 @@ def drawSidebarText(sheet, scr, text:Union[None,str,'HelpPane'], title:str='', o
     maxlinew = max(maxlinew, titlew)
     winw = min(maxw, maxlinew+4)
     x, y, w, h = scrw-winw-1, scrh-winh-1, winw, winh
+    y = max(y, 0)
 
     sidebarscr = vd.subwindow(scr, x, y, w, h)
 
