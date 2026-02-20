@@ -193,7 +193,7 @@ class Path(os.PathLike):
             self._path = pathlib.Path(given)
 
         self.ext = self.suffix[1:]
-        if self.suffix:  #1450  don't make this a oneliner; [:-0] doesn't work
+        if self.suffix and self.suffix != '.':  #1450  don't make this a oneliner; [:-0] doesn't work  #2887
             self.base_stem = self._path.name[:-len(self.suffix)]
         elif self._given == '.':  #1768
             self.base_stem = self._path.absolute().name
@@ -343,11 +343,9 @@ class Path(os.PathLike):
         return zopen(FileProgress(path, fp=open(path, mode='rb'), **kwargs), **kwargs)
 
     def __iter__(self):
-        with Progress(total=filesize(self)) as prog:
-            with self.open(encoding=vd.options.encoding) as fd:
-                for i, line in enumerate(fd):
-                    prog.addProgress(len(line))
-                    yield line.rstrip('\n')
+        with self.open(encoding=vd.options.encoding) as fd:
+            for line in fd:
+                yield line.rstrip('\n')
 
     def read_bytes(self):
         'Return the entire binary contents of the pointed-to file as a bytes object.'

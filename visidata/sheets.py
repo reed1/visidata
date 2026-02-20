@@ -3,7 +3,7 @@ import itertools
 from copy import copy, deepcopy
 import textwrap
 
-from visidata import VisiData, Extensible, globalCommand, ColumnAttr, ColumnItem, vd, ENTER, EscapeException, drawcache, drawcache_property, LazyChainMap, asyncthread, ExpectedException
+from visidata import VisiData, Extensible, globalCommand, ColumnAttr, ColumnItem, vd, EscapeException, drawcache, drawcache_property, LazyChainMap, asyncthread, ExpectedException
 from visidata import (options, Column, namedlist, SettableColumn, AttrDict, DisplayWrapper,
 TypedExceptionWrapper, BaseSheet, UNLOADED, wrapply,
 clipdraw, clipdraw_chunks, ColorAttr, update_attr, colors, undoAttrFunc, vlen, dispwidth)
@@ -24,7 +24,7 @@ vd.option('disp_wrap_replace_whitespace', False, 'replace whitespace with spaces
 vd.option('disp_wrap_placeholder', '…', 'multiline string to indicate truncation')
 vd.option('disp_multiline_focus', True, 'only multiline cursor row')
 vd.option('color_multiline_bottom', '', 'color of bottom line of multiline rows')  #2715
-vd.option('color_aggregator', 'bold 255 white on 234 black', 'color of aggregator summary on bottom row')
+vd.option('color_aggregator', 'bold 255 white on 240 black', 'color of aggregator summary on bottom row')
 
 
 @drawcache
@@ -343,7 +343,7 @@ class TableSheet(BaseSheet):
         if self._ordering:
             vd.sync(self.sort())
 
-    def iterrows(self):
+    def iterrows(self, gerund='iterating'):
         if self.rows is UNLOADED:
             try:
                 self.rows = []
@@ -354,7 +354,7 @@ class TableSheet(BaseSheet):
             except ExpectedException:
                 vd.sync(self.reload())
 
-        for row in vd.Progress(self.rows):
+        for row in vd.Progress(list(self.rows), gerund=gerund, total=self.nRows):
             yield row
 
     def __iter__(self):
@@ -519,6 +519,11 @@ class TableSheet(BaseSheet):
     def cursorDisplay(self):
         'Displayed value (DisplayWrapper.text) at current row and column.'
         return self.cursorCol.getDisplayValue(self.cursorRow)
+
+    @property
+    def cursorFullDisplay(self):
+        'Full displayed value (without truncating on width) at current row and column.'
+        return self.cursorCol.format(self.cursorCol.getTypedValue(self.cursorRow))
 
     @property
     def cursorTypedValue(self):
@@ -790,13 +795,13 @@ class TableSheet(BaseSheet):
                 hdrcattr = update_attr(hdrcattr, colors.color_bottom_hdr, 5)
 
             if y+i < self.windowHeight:
-                clipdraw(scr, y+i, x, name, hdrcattr, w=colwidth)
+                clipdraw(scr, y+i, x, name, hdrcattr, w=colwidth, literal=True)
             vd.onMouse(scr, x, y+i, colwidth, 1, BUTTON3_RELEASED='rename-col')
 
             if C and x+colwidth+dispwidth(C) < self.windowWidth and y+i < self.windowHeight:
                 scr.addstr(y+i, x+colwidth, C, sepcattr.attr)
 
-        clipdraw(scr, y+h-1, min(x+colwidth, self.windowWidth-1)-dispwidth(T), T, hdrcattr)
+        clipdraw(scr, y+h-1, min(x+colwidth, self.windowWidth-1)-dispwidth(T), T, hdrcattr, literal=True)
 
         try:
             if vcolidx == self.leftVisibleColIndex and col not in self.keyCols and self.nonKeyVisibleCols.index(col) > 0:
@@ -885,10 +890,17 @@ class TableSheet(BaseSheet):
 
         # draw bottom-row aggregators  #2209
         rightx, rightw = self._visibleColLayout[self.rightVisibleColIndex]
-        rightx += rightw+1
+        agglabelx = rightx+rightw+1
+        if agglabelx > self.windowWidth-9: # if offscreen, put labels in first non-aggregated column
+            for vcolidx, (x, _) in sorted(self._visibleColLayout.items()):
+                col = self.availCols[vcolidx]
+                if not col.aggregators:
+                    agglabelx = x
+                    break
 
         for aggrname, colidxs in self.allAggregators.items():
-            clipdraw(scr, y, 0, ' '*rightx + f' {aggrname:9}', colors.color_aggregator, truncator='+')
+            clipdraw(scr, y, 0, f' ', colors.color_aggregator, w=min(rightx+rightw+10, self.windowWidth-1), literal=True)
+            clipdraw(scr, y, agglabelx, f' {aggrname:9}', colors.color_aggregator, truncator='', literal=True)
 
             for vcolidx in colidxs:
                 x, colwidth = self._visibleColLayout[vcolidx]
@@ -1045,7 +1057,7 @@ class TableSheet(BaseSheet):
             for notefunc in vd.rowNoters:
                 ch = notefunc(self, row)
                 if ch:
-                    clipdraw(scr, ybase, 0, ch, colors.color_note_row)
+                    clipdraw(scr, ybase, 0, ch, colors.color_note_row, literal=True)
                     break
 
             return height
@@ -1241,7 +1253,7 @@ def async_deepcopy(sheet, rowlist):
     _async_deepcopy(ret, rowlist)
     return ret
 
-@Sheet.api
+@BaseSheet.api
 def reload_or_replace(sheet):
     sheet.preloadHook()
     if isinstance(sheet.source, visidata.Path) and \
@@ -1261,8 +1273,8 @@ def reload_or_replace(sheet):
 BaseSheet.init('pane', lambda: 1)
 
 
-BaseSheet.addCommand('^R', 'reload-sheet', 'reload_or_replace()', 'Reload current sheet')
-Sheet.addCommand('', 'show-cursor', 'status(statusLine)', 'show cursor position and bounds of current sheet on status line')
+BaseSheet.addCommand('Ctrl+R', 'reload-sheet', 'reload_or_replace()', 'Reload current sheet')
+Sheet.addCommand('', 'show-cursor', 'status(statusLine)', 'show cursor position and bounds of current sheet')
 
 Sheet.addCommand('!', 'key-col', 'exec_longname("key-col-off") if cursorCol.keycol else exec_longname("key-col-on")', 'toggle current column as a key column', replay=False)
 Sheet.addCommand('', 'key-col-on', 'setKeys([cursorCol])', 'set current column as a key column')
@@ -1289,11 +1301,11 @@ globalCommand('gq', 'quit-all', 'vd.quit(*vd.sheets)', 'quit all sheets (clean e
 
 BaseSheet.addCommand('Z', 'splitwin-half', 'splitPane(vd.options.disp_splitwin_pct or 50)', 'ensure split pane is set and push under sheet onto other pane')
 BaseSheet.addCommand('gZ', 'splitwin-close', 'vd.options.disp_splitwin_pct = 0\nfor vs in vd.activeStack: vs.pane = 1', 'close split screen')
-BaseSheet.addCommand('^I', 'splitwin-swap', 'vd.activePane = 1 if sheet.pane == 2 else 2', 'jump to inactive pane')
-BaseSheet.addCommand('g^I', 'splitwin-swap-pane', 'vd.options.disp_splitwin_pct=-vd.options.disp_splitwin_pct', 'swap panes onscreen')
+BaseSheet.addCommand('Tab', 'splitwin-swap', 'vd.activePane = 1 if sheet.pane == 2 else 2', 'jump to inactive pane')
+BaseSheet.addCommand('gTab', 'splitwin-swap-pane', 'vd.options.disp_splitwin_pct=-vd.options.disp_splitwin_pct', 'swap panes onscreen')
 BaseSheet.addCommand('zZ', 'splitwin-input', 'vd.options.disp_splitwin_pct = input("% height for split window: ", value=vd.options.disp_splitwin_pct)', 'set split pane to specific size')
 
-BaseSheet.addCommand('^L', 'redraw', 'sheet.refresh(); vd.redraw(); vd.draw_all()', 'Refresh screen')
+BaseSheet.addCommand('Ctrl+L', 'redraw', 'sheet.refresh(); vd.redraw(); vd.draw_all()', 'Refresh screen')
 BaseSheet.addCommand(None, 'guard-sheet', 'options.set("quitguard", True, sheet); status("guarded")', 'Set quitguard on current sheet to confirm before quit')
 BaseSheet.addCommand(None, 'guard-sheet-off', 'options.set("quitguard", False, sheet); status("unguarded")', 'Unset quitguard on current sheet to not confirm before quit')
 BaseSheet.addCommand(None, 'open-source', 'vd.replace(source)', 'jump to the source of this sheet')
@@ -1349,6 +1361,8 @@ vd.addMenuItems('''
     View > Split pane > swap panes > splitwin-swap-pane
     View > Split pane > goto other pane > splitwin-swap
     View > Refresh screen > redraw
+    View > Show > cursor position > show-cursor
+    View > Show > evaluated expression > show-expr
     Column > Type as > anytype > type-any
     Column > Type as > string > type-string
     Column > Type as > integer > type-int

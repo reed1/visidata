@@ -8,7 +8,7 @@ import os
 
 import visidata
 from visidata import VisiData, BaseSheet, vd, AttrDict
-from visidata.vendor.appdirs import user_config_dir, user_cache_dir
+from visidata.vendor.appdirs import user_config_dir, user_cache_dir, user_data_dir
 
 
 # [settingname] -> { objname(Sheet-instance/Sheet-type/'global'/'default'): Option/Command/longname }
@@ -338,6 +338,18 @@ def addCommand(cls, keystrokes, longname, execstr, helpstr='', replay=True, **kw
         vd.bindkey(keystrokes, longname, cls)
     return longname
 
+@BaseSheet.class_api
+@classmethod
+def removeCommand(cls, keystrokes, longname):
+    '''Remove a command from *cls* sheet type.
+
+    - *keystrokes*: if provided, unbind this specific keystroke.
+    - *longname*: name of the command to remove.
+    '''
+    vd.commands.unset(longname, cls)
+    if keystrokes:
+        vd.unbindkey(keystrokes, cls)
+
 def _command(cls, binding, longname, helpstr, **kwargs):
     def decorator(func):
         funcname = longname.replace('-', '_')
@@ -383,8 +395,12 @@ def getCommand(sheet, cmd):
         return cmd
 
     longname = cmd
+    seen = []
     while vd.bindkeys._get(longname, obj=sheet) is not None:
         longname = vd.bindkeys._get(longname, obj=sheet)
+        if longname in seen:
+            vd.fail(f'keystroke/command definitions form a cycle: {longname}')
+        seen.append(longname)
 
     return vd.commands._get(longname, obj=sheet)
 
@@ -422,7 +438,8 @@ def addOptions(parser):
             pass
 
 
-def _get_config_file():
+@VisiData.cached_property
+def config_file(vd):
     xdg_config_file = visidata.Path(user_config_dir('visidata')) / 'config.py'
     if xdg_config_file.exists():
         return xdg_config_file
@@ -430,8 +447,14 @@ def _get_config_file():
         return visidata.Path('~/.visidatarc')
 
 
-def _get_cache_dir():
+@VisiData.cached_property
+def cache_dir(vd):
     return visidata.Path(user_cache_dir('visidata'))
+
+
+@VisiData.cached_property
+def data_dir(vd):
+    return visidata.Path(user_data_dir('visidata'))
 
 
 @VisiData.api

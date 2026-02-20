@@ -5,7 +5,13 @@
 #set -e
 shopt -s failglob
 
-trap "echo aborted; exit;" SIGINT SIGTERM
+trap "echo SIGTERM; exit;" SIGTERM
+trap "echo SIGINT; exit;" SIGINT
+
+export LC_NUMERIC="en_US.UTF-8" #2867
+export LC_TIME="en_US.UTF-8"
+
+PYTHON=${PYTHON:-python}
 
 MAX_PARALLEL_JOBS=1
 while getopts "j:" opt; do
@@ -45,9 +51,9 @@ for i in $TESTS ; do
     if [ "${i%-nosave.vd*}-nosave" == "${i%.vd*}" ];
     then
         TEST=false
-    elif [ "${i%-n312.vd*}-n312" == "${i%.vd*}" ];
+    elif [ "${i%-n311.vd*}-n311" == "${i%.vd*}" ];
     then
-        if [ "$(python -c 'import sys; print(sys.version_info[:2] >= (3,12))')" == "True" ];
+        if [ "$($PYTHON -c 'import sys; print(sys.version_info[:2] >= (3,11))')" == "True" ];
         then
             TEST=false
         else
@@ -56,7 +62,7 @@ for i in $TESTS ; do
 
     elif [ "${i%-311.vd*}-311" == "${i%.vd*}" ];
     then
-        if [ "$(python -c 'import sys; print(sys.version_info[:2] >= (3,11))')" == "True" ];
+        if [ "$($PYTHON -c 'import sys; print(sys.version_info[:2] >= (3,11))')" == "True" ];
         then
             TEST=true
         else
@@ -74,20 +80,23 @@ for i in $TESTS ; do
     if [ "$TEST" == true ];
     then
         for goldfn in tests/golden/"${outbase%.vd*}".*; do
-            PYTHONPATH=. run_silent_unless_error bin/vd --overwrite=False --play "$i" --batch --output "$goldfn" --config tests/.visidatarc --visidata-dir tests/.visidata &
+            PYTHONPATH=. run_silent_unless_error bin/vd --overwrite=n --play "$i" --batch --output "$goldfn" --config tests/.visidatarc --visidata-dir tests/.visidata &
         done
     else
         PYTHONPATH=. run_silent_unless_error bin/vd --play "$i" --batch --config tests/.visidatarc --visidata-dir tests/.visidata &
     fi
 done
 
-PYTHONPATH=. run_silent_unless_error bin/vd <(seq 10000) --overwrite=False --batch --output tests/golden/stdin-guesser.tsv --config tests/.visidatarc --visidata-dir tests/.visidata  #1978
+PYTHONPATH=. run_silent_unless_error bin/vd <(seq 10000) --overwrite=n --batch --output tests/golden/stdin-guesser.tsv --config tests/.visidatarc --visidata-dir tests/.visidata  #1978
 
 #wait for any remaining background jobs to finish
 wait
 
-echo '=== git diffs for BUILD FAILURE ==='
-git --no-pager diff --numstat tests/
-git --no-pager diff --exit-code tests/; git_diff_exit_code="$?"
-echo '=============================================='
-exit "$git_diff_exit_code"
+diff_output=$(git --no-pager diff tests/)
+if [ -z "$diff_output" ]; then
+    echo "PASS"
+else
+    echo "$diff_output"
+    echo "FAIL (see output)"
+    exit 1
+fi

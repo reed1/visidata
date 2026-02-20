@@ -42,7 +42,7 @@ VisiData.save_vd = VisiData.save_tsv
 @VisiData.api
 def save_vdj(vd, p, *vsheets):
     with p.open(mode='w', encoding=vsheets[0].options.save_encoding) as fp:
-        fp.write("#!vd -p\n")
+        fp.write("#!/usr/bin/env -S vd -p\n")
         for vs in vsheets:
             vs.write_jsonl(fp)
 
@@ -116,11 +116,11 @@ def getRowIndexFromStr(vs, row):
 def moveToCol(vs, col):
     'Move cursor to column given by *col*, which can be either the column number or column name.'
     if isinstance(col, str):
-        vcolidx = indexMatch(vs.visibleCols, lambda c,name=col: name == c.name)
+        vcolidx = indexMatch(vs.availCols, lambda c,name=col: name == c.name)
     elif isinstance(col, int):
         vcolidx = col
 
-    if vcolidx is None or vcolidx >= vs.nVisibleCols:
+    if vcolidx is None or vcolidx >= len(vs.availCols):
         return False
 
     vs.cursorVisibleColIndex = vcolidx
@@ -366,8 +366,8 @@ def replay_sync(vd, cmdlog):
 @VisiData.api
 def replay(vd, cmdlog):
     'Inject commands into live execution with interface.'
-    vd.push(cmdlog)
     vd._nextCommands.extend(cmdlog.rows)
+    vd.currentReplay = cmdlog
 
 
 @VisiData.api
@@ -452,37 +452,19 @@ def modifyCommand(vd):
     return vd.cmdlog.rows[-1]
 
 
-@CommandLogJsonl.api
-@asyncthread
-def repeat_for_n(cmdlog, r, n=1):
-    r.sheet = r.row = r.col = ""
-    for i in range(n):
-        vd.replayOne(r)
-
-@CommandLogJsonl.api
-@asyncthread
-def repeat_for_selected(cmdlog, r):
-    r.sheet = r.row = r.col = ""
-
-    for idx, r in enumerate(vd.sheet.rows):
-        if vd.sheet.isSelected(r):
-            vd.sheet.cursorRowIndex = idx
-            vd.replayOne(r)
-
-
 BaseSheet.init('_shortcut')
 
 
 globalCommand('gD', 'cmdlog-all', 'vd.push(vd.cmdlog)', 'open global CommandLog for all commands executed in current session')
 globalCommand('D', 'cmdlog-sheet', 'vd.push(sheet.cmdlog)', "open current sheet's CommandLog with all other loose ends removed; includes commands from parent sheets")
 globalCommand('zD', 'cmdlog-sheet-only', 'vd.push(sheet.cmdlog_sheet)', 'open CommandLog for current sheet with commands from parent sheets removed')
-BaseSheet.addCommand('^D', 'save-cmdlog', 'saveSheets(inputPath("save cmdlog to: ", value=fnSuffix(name)), vd.cmdlog)', 'save CommandLog to filename.vdj file')
-BaseSheet.bindkey('^N', 'no-op')
-BaseSheet.addCommand('^K', 'replay-stop', 'vd.replay_cancel(); vd.warning("replay canceled")', 'cancel current replay')
+BaseSheet.addCommand('Ctrl+D', 'save-cmdlog', 'saveSheets(inputPath("save cmdlog to: ", value=fnSuffix(name)), vd.cmdlog)', 'save CommandLog to filename.vdj file')
+BaseSheet.bindkey('Ctrl+N', 'no-op')
+BaseSheet.addCommand('Ctrl+K', 'replay-stop', 'vd.replay_cancel(); vd.warning("replay canceled")', 'cancel current replay')
 
 globalCommand(None, 'show-status', 'status(input("status: "))', 'show given message on status line')
-globalCommand('^V', 'show-version', 'status(__version_info__);', 'Show version and copyright information on status line')
-globalCommand('z^V', 'check-version', 'checkVersion(input("require version: ", value=__version_info__))', 'check VisiData version against given version')
+globalCommand('Ctrl+V', 'show-version', 'status(__version_info__);', 'Show version and copyright information on status line')
+globalCommand('zCtrl+V', 'check-version', 'checkVersion(input("require version: ", value=__version_info__))', 'check VisiData version against given version')
 
 CommandLog.addCommand('x', 'replay-row', 'vd.replayOne(cursorRow); status("replayed one row")', 'replay command in current row')
 CommandLog.addCommand('gx', 'replay-all', 'vd.replay(sheet)', 'replay contents of entire CommandLog')
@@ -495,10 +477,13 @@ CommandLog.options.encoding = 'utf-8'
 CommandLogJsonl.options.json_sort_keys = False
 CommandLogJsonl.options.regex_skip = r'^(//|#).*'
 
-vd.addGlobals(CommandLogBase=CommandLogBase, CommandLogRow=CommandLogRow)
+vd.addGlobals(CommandLogBase=CommandLogBase,
+              CommandLogJsonl=CommandLogJsonl,
+              CommandLogRow=CommandLogRow,
+              )
 
 vd.addMenuItems('''
-            View > Command log > this sheet > cmdlog-sheet
+    View > Command log > this sheet > cmdlog-sheet
     View > Command log > this sheet only > cmdlog-sheet-only
     View > Command log > all commands > cmdlog-all
     System > Execute longname > exec-longname

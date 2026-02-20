@@ -205,7 +205,7 @@ def clipstr(s, dispw, truncator=None, oddspace=None):
 def clipdraw(scr, y, x, s, attr, w=None, clear=True, literal=False, **kwargs):
     '''Draw `s`  at (y,x)-(y,x+w) with curses `attr`, clipping with ellipsis char.
        If `clear`, clear whole editing area before displaying.
-       If `literal`, do not interpret internal color code markup.
+       If `literal`, do not interpret internal vd code markup.
        Return width drawn (max of w).
     '''
     if not literal:
@@ -219,10 +219,11 @@ def clipdraw(scr, y, x, s, attr, w=None, clear=True, literal=False, **kwargs):
     return clipdraw_chunks(scr, y, x, chunks, attr, w=w, clear=clear, **kwargs)
 
 
-def clipdraw_chunks(scr, y, x, chunks, cattr:ColorAttr=ColorAttr(), w=None, clear=True, literal=False, **kwargs):
+def clipdraw_chunks(scr, y, x, chunks, cattr:ColorAttr=ColorAttr(), w=None, clear=True, **kwargs):
     '''Draw `chunks` (sequence of (color:str, text:str) as from iterchunks) at (y,x)-(y,x+w) with curses `attr`, clipping with ellipsis char.
        If `clear`, clear whole editing area before displaying.
        Return width drawn (max of w).
+       Text elements of `chunks` are literal, meaning any contained vd code markup is drawn raw as uninterpreted text.
     '''
     if scr:
         windowHeight, windowWidth = scr.getmaxyx()
@@ -254,7 +255,7 @@ def clipdraw_chunks(scr, y, x, chunks, cattr:ColorAttr=ColorAttr(), w=None, clea
                 continue
 
             if origw is None:
-                chunkw = dispwidth(chunk, maxwidth=windowWidth-totaldispw)
+                chunkw = dispwidth(chunk, maxwidth=windowWidth-totaldispw, literal=True)
             else:
                 chunkw = origw-totaldispw
 
@@ -349,17 +350,7 @@ def wraptext(text, width=80, indent=''):
             yield c, ''
 
 
-def clipbox(scr, lines, attr, title=''):
-    scr.erase()
-    scr.bkgd(attr)
-    scr.box()
-    h, w = scr.getmaxyx()
-    for i, line in enumerate(lines):
-        clipdraw(scr, i+1, 2, line, attr)
-
-    clipdraw(scr, 0, w-dispwidth(title)-6, f"| {title} |", attr)
-
-def clipstr_start(dispval, w, truncator=''):
+def clipstr_start(dispval, w, truncator='', literal=False):
     '''Return a tuple (frag, dw), where *frag* is the longest ending substring
     of *dispval* that will fit in a space *w* terminal display characters wide,
     and *dw* is the substring's display width as an int.'''
@@ -369,12 +360,12 @@ def clipstr_start(dispval, w, truncator=''):
     if w <= 0: return '', 0
     j = len(dispval)
     while j >= 1:
-        if dispwidth((truncator if j > 1 else '') + dispval[j-1:]) <= w:
+        if dispwidth((truncator if j > 1 else '') + dispval[j-1:], literal=literal) <= w:
             j -= 1
         else:
             break
     frag = (truncator if j > 0 else '') + dispval[j:]
-    return frag, dispwidth(frag)
+    return frag, dispwidth(frag, literal=literal)
 
 def clipstr_middle(s, n=10, truncator='…'):
     '''Return a string having a display width <= *n*. Excess characters are
@@ -391,13 +382,74 @@ def clipstr_middle(s, n=10, truncator='…'):
         return res, dispwidth(res)
     return s, dispwidth(s)
 
+def clip_markup_middle(s:str, w:int):
+    '''takes a string *s* containing optional visidata markup, and returns a string
+    truncated to have a display width less than or equal to *w*, while preserving markup
+    for the remaining text. When text with markup is clipped, what is omitted is one or
+    more entire markup sections, between markup start and end delimiters:
+    [:markup] [:] [/markup] [/]
+    The dropped text is replaced with a single disp_truncator.
+    When text without markup is clipped, *clipstr_middle()* is used.
+    The parsing will fail on markup that is nested.
+    '''
+    trunch = options.disp_truncator
+
+    if w <= 0: return ''
+    if dispwidth(s) <= w:
+        return s
+    if w < dispwidth(trunch): return ''
+
+    markup_section_re = r'(\[.*?\].*?\[[/:].*?\])'  # [:whatever]text[:] or [:whatever]text[/anything]
+    if not re.match(internal_markup_re, s):
+        return clipstr_middle(s, w, truncator=options.disp_truncator)
+    # build the front half of the string
+    output = []
+    chunks_w = 0
+    truncated = False
+    chunks = re.split(markup_section_re, s)
+    for i, chunk in enumerate(chunks):  #chunks are either regular text, or marked up section:  start, text, end
+        parts = re.split(internal_markup_re, chunk)
+        if len(parts) == 1:      #text with no markup
+            text_w = dispwidth(parts[0])
+        elif len(parts) == 5 and parts[0] == '' and parts[4] == '': #empty string, start, text, end, empty string
+            text_w = dispwidth(parts[2])
+        else:
+            vd.fail(f'error parsing markup clip')
+        if chunks_w + text_w < w//2:
+            output.append(chunk)
+            chunks_w += text_w
+        else:
+            output.append(trunch)  #skip the chunk instead of using a substring, because Unicode strings are complex to trim
+            truncated = True
+            break
+    # build the back half of the string, working backwards from the end
+    reverse_output = []
+    chunks_w = 0
+    for chunk in chunks[len(chunks)-1:i:-1]:
+        parts = re.split(internal_markup_re, chunk)
+        if len(parts) == 1:
+            text_w = dispwidth(parts[0])
+        elif len(parts) == 5 and parts[0] == '' and parts[4] == '':
+            text_w = dispwidth(parts[2])
+        else:
+            vd.fail(f'error parsing markup clip')
+        if chunks_w + text_w <= w//2 - (0 if truncated else dispwidth(trunch)):
+            reverse_output.append(chunk)
+            chunks_w += text_w
+        else:
+            if not truncated:
+                reverse_output.append(trunch)
+            break
+    output += reverse_output[::-1]
+    return ''.join(output)
+
 vd.addGlobals(clipstr=clipstr,
               clipdraw=clipdraw,
               clipdraw_chunks=clipdraw_chunks,
-              clipbox=clipbox,
               dispwidth=dispwidth,
               iterchars=iterchars,
               iterchunks=iterchunks,
               wraptext=wraptext,
               clipstr_start=clipstr_start,
-              clipstr_middle=clipstr_middle)
+              clipstr_middle=clipstr_middle,
+              clip_markup_middle=clip_markup_middle)

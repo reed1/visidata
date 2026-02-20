@@ -14,7 +14,7 @@ jobs:
 
     strategy:
       matrix:
-        python-version: [3.8, 3.9, "3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
 
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -40,6 +40,12 @@ jobs:
     - name: Ensure VisiData can load a dir
       run: vd . --batch
 
+    - name: Test startup time less than 400ms
+      run: |
+        /usr/bin/time -f "%U" -o /tmp/vd_start_time vd -b -N -p dev/quit.vdx
+        (( $(echo "$(cat /tmp/vd_start_time) < 0.40" | bc -l) ))
+
+
 # Apt packages are slow to install, often taking up to a minute.
 # lxml dependencies are unneeded when installing lxml via pip
 #    - name: Install lxml dependencies
@@ -63,9 +69,7 @@ jobs:
 
     - name: Test macros
       run: |
-        mkdir -p ~/.visidata
-        cp tests/macros/macros.jsonl tests/macros/1.vdj ~/.visidata/
-        vd --batch --visidata-dir ~/.visidata -p tests/macros/test_macro.vd --output tests/macros/golden/test_macro.tsv
+        XDG_DATA_HOME=tests/xdg/data XDG_CONFIG_HOME=tests/xdg/config vd --batch -p tests/macros/test_macro.vd --output tests/macros/golden/test_macro.tsv
         git --no-pager diff --numstat tests/
         git --no-pager diff --exit-code tests/
 

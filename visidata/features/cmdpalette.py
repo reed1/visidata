@@ -1,7 +1,7 @@
 import collections
 import math
 from functools import partial
-from visidata import DrawablePane, BaseSheet, vd, VisiData, CompleteKey, clipdraw, HelpSheet, colors, AcceptInput, AttrDict, drawcache_property, dispwidth
+from visidata import DrawablePane, BaseSheet, vd, VisiData, CompleteKey, clipdraw, HelpSheet, colors, AcceptInput, AttrDict, drawcache_property, dispwidth, EscapeException
 
 
 vd.theme_option('color_cmdpalette', 'black on 72', 'base color of command palette')
@@ -58,6 +58,7 @@ def inputPalette(sheet, prompt, items,
                  value_key='key',
                  formatter=lambda m, item, trigger_key: f'{trigger_key} {item}',
                  multiple=False,
+                 x=0, y=0, w=0, h=0,
                  **kwargs):
     if not vd.wantsHelp('cmdpalette'):
         return vd.input(prompt,
@@ -81,7 +82,7 @@ def inputPalette(sheet, prompt, items,
         tabitem = (tabitem + n) % nitems
 
     def _draw_palette(value):
-        nonlocal prev_value
+        nonlocal prev_value, h, w
         words = value.split()
         if value != prev_value:
             reset_display()
@@ -102,8 +103,8 @@ def inputPalette(sheet, prompt, items,
 
         matches = vd.fuzzymatch(unuseditems, unfinished_words)
 
-        h = sheet.windowHeight
-        w = min(100, sheet.windowWidth)
+        h = h or sheet.windowHeight
+        w = w or min(100, sheet.windowWidth)
         nitems = min(h-2, sheet.options.disp_cmdpal_max)
         if nitems <= 0:
             return None
@@ -142,16 +143,21 @@ def inputPalette(sheet, prompt, items,
 
         navailitems = min(len(palrows), nitems)
 
-        bindings['^I'] = lambda *args: tab(1, navailitems) or args
-        bindings['KEY_BTAB'] = lambda *args: tab(-1, navailitems) or args
-        bindings['KEY_PPAGE'] = lambda *args: (change_page(-1) and read_matches(offset)) or args
-        bindings['KEY_NPAGE'] = lambda *args: (change_page(+1) and read_matches(offset)) or args
+        bindings['Tab'] = lambda *args: tab(1, navailitems) or args
+        bindings['Shift+Tab'] = lambda *args: tab(-1, navailitems) or args
+        bindings['PgUp'] = lambda *args: (change_page(-1) and read_matches(offset)) or args
+        bindings['PgDn'] = lambda *args: (change_page(+1) and read_matches(offset)) or args
         for numkey in '1234567890':
             bindings.pop(numkey, None)
 
         for i in range(nitems-len(palrows)):
             palrows.append((None, None))
 
+        if not navailitems:
+            def _enter(v, i):
+                raise EscapeException(f'no choice matching {v}')
+            bindings['Enter'] = _enter
+            bindings.pop(' ', None)
         used_triggers = set()
         for i, (m, item) in enumerate(palrows):
             trigger_key = ''
@@ -168,24 +174,25 @@ def inputPalette(sheet, prompt, items,
                 _ , topitem = palrows[0]
                 if topitem:
                     if multiple:
-                        bindings['^J'] = partial(accept_input_if_subset, value=topitem[value_key])
-                        bindings[' '] = partial(add_to_input, value=topitem[value_key])
+                        bindings['Enter'] = partial(accept_input_if_subset, value=topitem[value_key])
+                        bindings['Space'] = partial(add_to_input, value=topitem[value_key])
                     else:
-                        bindings['^J'] = partial(accept_input, value=topitem[value_key])
+                        bindings['Enter'] = partial(accept_input, value=topitem[value_key])
             elif item and i == tabitem:
                 if multiple:
-                    bindings['^J'] = partial(accept_input_if_subset, value=item[value_key])
-                    bindings[' '] = partial(add_to_input, value=item[value_key])
+                    bindings['Enter'] = partial(accept_input_if_subset, value=item[value_key])
+                    bindings['Space'] = partial(add_to_input, value=item[value_key])
                 else:
-                    bindings['^J'] = partial(accept_input, value=item[value_key])
+                    bindings['Enter'] = partial(accept_input, value=item[value_key])
                 attr = colors.color_menu_spec
 
             match_summary = formatter(m, item, trigger_key) if item else ' '
 
-            clipdraw(sheet._scr, h-nitems-2+i, 0, match_summary, attr, w=w)
+            clipdraw(sheet._scr, y+h-nitems-2+i, x, match_summary, attr, w=w)
         attr = colors.color_cmdpalette
-        instr = 'Press [:keystrokes]PgUp/PgDn[/] to scroll items, [:keystrokes]Tab/Shift+Tab/Enter[/] to choose, [:keystrokes]Esc[/] to cancel.'
-        clipdraw(sheet._scr, h-2, 0, instr, attr, w=w)
+        instr = 'Press [:keystrokes]PgUp/PgDn[/] to scroll items, [:keystrokes]Tab/Shift+Tab[/] then [:keystrokes]Enter[/] to choose, [:keystrokes]Esc[/] to cancel.'
+        if dispwidth(instr) < w:
+            clipdraw(sheet._scr, h-2, x, instr, attr, w=w)
 
         return None
 

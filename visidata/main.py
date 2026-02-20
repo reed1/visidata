@@ -18,12 +18,11 @@ import builtins  # to override print
 
 from visidata import vd, options, run, BaseSheet, AttrDict, stacktrace
 from visidata import Path
-from visidata.settings import _get_config_file
 import visidata
 
 vd.version_info = __version_info__
 
-vd.option('config', _get_config_file(), 'config file to exec in Python', sheettype=None)
+vd.option('config', vd.config_file, 'config file to exec in Python', sheettype=None)
 vd.option('play', '', 'file.vdj to replay')
 vd.option('batch', False, 'replay in batch mode (with no interface and all status sent to stdout)')
 vd.option('output', None, 'save the final visible sheet to output at the end of replay')
@@ -49,6 +48,8 @@ def eval_vd(logpath, *args, **kwargs):
         vs = vd.openSource(src, filetype='vdj')
     else:
         vs = vd.openSource(src, filetype=src.ext)
+    # add a row in place of the sheet creation command that undo() expects as the first command
+    vs.cmdlog_sheet.addRow(vs.cmdlog_sheet.newRow(sheet=None, row='', keystrokes='', input='', longname='no-op', undofuncs=[]))
     vs.name += '_vd'
     vd.sync(vs.reload())
     vs.vd = vd
@@ -189,7 +190,11 @@ def main_vd():
     except locale.Error as e:
         vd.warning(e)
 
-    warnings.showwarning = vd.warning
+    if options.debug:
+        warnings.showwarning = lambda msg, cat, fn, lineno, *args, **kwargs: vd.warning(f'{fn}:{lineno}: {msg}')
+    else:
+        warnings.showwarning = lambda msg, *args, **kwargs: vd.warning(msg)
+
     vd.printerr = lambda *args: builtins.print(*args, file=sys.stderr)
 
     flPipedInput = not sys.stdin.isatty()
@@ -276,6 +281,13 @@ def main_vd():
         i += 1
 
     args = AttrDict(current_args)
+
+    if args.profile:
+        import threading
+        import cProfile
+        t = threading.current_thread()
+        t.profile = cProfile.Profile()
+        t.profile.enable()
 
     if not args.nothing:
         vd.loadConfigAndPlugins(args)
@@ -369,6 +381,9 @@ def main_vd():
                 vd.execAsync = lambda *args, vd=vd, **kwargs: visidata.VisiData.execAsync(vd, *args, **kwargs)
                 run()
         else:
+            vd.push(vs)
+            for src in reversed(sources):
+                vd.push(src, load=False)
             vd.replay(vs)
             run()
 
@@ -404,4 +419,12 @@ def vd_cli():
 
     sys.stderr.flush()
     sys.stdout.flush()
-    os._exit(rc)  # cleanup can be expensive with large datasets
+
+    vd.killLeftoverProcesses()
+
+    if vd.options.profile:
+        import threading
+        threading.current_thread().profile.disable()
+        threading.current_thread().profile.dump_stats('vd.pyprof')
+    elif not vd.options.debug:
+        os._exit(rc)  # cleanup can be expensive with large datasets

@@ -43,7 +43,7 @@ def isTestableCommand(longname, cmdlist):
 
 inputLines = { 'save-sheet': 'jetsam.csv',  # save to some tmp file
                 'save-all': 'lagan.csv',
-                 'open-file': 'jetsam.csv',  # reopen what was just saved ('o' must come after ^S in the commands list)
+                 'open-file': 'jetsam.csv',  # reopen what was just saved ('o' must come after Ctrl+S in the commands list)
                  'save-col': 'flotsam.csv',
                  'save-col-keys': 'debris.csv',
                 'pyobj-expr': '2+2',            # open the python object for '4'
@@ -70,7 +70,6 @@ inputLines = { 'save-sheet': 'jetsam.csv',  # save to some tmp file
                  'setcol-iter': 'range(1, 100)',
                  'addcol-iter': 'range(1, 100)',
                  'setcol-format-enum': '1=cat',
-                 'open-ping': 'github.com',
                  'setcol-input': '5',
                  'show-expr': 'OrderDate',
                  'setcol-expr': 'OrderDate',
@@ -81,11 +80,9 @@ inputLines = { 'save-sheet': 'jetsam.csv',  # save to some tmp file
                  'addcol-regex-subst': dict(before=r'Units/(\w)', after=r'\1'), # the first character
                  'search-cols': 'foo',
                  'searchr-cols': 'bar',
-                 'select-cols-regex': '.',
                  'select-expr': 'OrderDate',
                  'setcol-fake': 'name',
                  'unselect-expr': 'OrderDate',
-                 'unselect-cols-regex': '.',
                  'random-rows': '3',
                  'select-random': '3',
                  'import-python': 'math',
@@ -170,10 +167,10 @@ class TestCommands:
         vd.scr = mock_screen
 
         if longname in inputLines:
-            line = [ch for ch in inputLines[longname]] + ['^J']
+            line = [ch for ch in inputLines[longname]] + ['Enter']
             vd.getkeystroke = Mock(side_effect=line)
         else:
-            vd.getkeystroke = Mock(side_effect=['^J'])
+            vd.getkeystroke = Mock(side_effect=['Enter'])
 
         sample_file = vd.pkg_resources_files(visidata) / 'tests/sample.tsv'
         vs = visidata.TsvSheet('sample', source=visidata.Path(sample_file))

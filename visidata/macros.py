@@ -33,7 +33,18 @@ class MacroSheet(IndexSheet):
         yield from vd.macrobindings.values()
 
     def commitDeleteRow(self, row):
-        del vd.macrobindings[row.binding]
+        binding = row.binding
+
+        # Remove from macrobindings
+        del vd.macrobindings[binding]
+
+        # Remove command registration and key bindings
+        if vd.isLongname(binding):
+            BaseSheet.removeCommand('', binding)
+        else:
+            BaseSheet.removeCommand(binding,f'exec-{row.name}')
+
+        # Delete source file
         vd.callNoExceptions(Path(row.source).unlink)
 
     @asyncthread
@@ -148,7 +159,10 @@ def run(vd, *args, **kwargs):
 def reloadMacros(vd):
     vd.macros.reload()
     for r in vd.macros:
-        vs = vd.loadMacro(Path(r.source))
+        p = Path(r.source)
+        if not p.is_absolute():
+            p = vd.macros.path.parent / r.source
+        vs = vd.loadMacro(p)
         if vs:
             vd.setMacro(r.binding, vs)
 

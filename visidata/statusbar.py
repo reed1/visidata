@@ -8,7 +8,7 @@ import curses
 import sys
 
 import visidata
-from visidata import vd, VisiData, BaseSheet, Sheet, ColumnItem, Column, RowColorizer, options, colors, wrmap, clipdraw, ExpectedException, update_attr, dispwidth, ColorAttr, clipstr_middle
+from visidata import vd, VisiData, BaseSheet, Sheet, ColumnItem, Column, RowColorizer, options, colors, wrmap, clipdraw, ExpectedException, update_attr, dispwidth, ColorAttr, clipstr_middle, clip_markup_middle
 
 
 
@@ -147,11 +147,6 @@ def debug(vd, *args, **kwargs):
     if options.debug:
         return vd.status(*args, **kwargs)
 
-def middleTruncate(s, w):
-    if len(s) <= w:
-        return s
-    return s[:w] + options.disp_truncator + s[-w:]
-
 
 def composeStatus(msgparts, n=1):
     msg = '; '.join(wrmap(str, msgparts))
@@ -184,7 +179,7 @@ def drawLeftStatus(vd, scr, vs):
     lstatus = vs.leftStatus()
     maxwidth = options.disp_lstatus_max
     if maxwidth > 0:
-        lstatus = middleTruncate(lstatus, maxwidth//2)
+        lstatus = clip_markup_middle(lstatus, maxwidth)
 
     x = clipdraw(scr, y, 0, lstatus, cattr, w=vs.windowWidth-1)
 
@@ -211,7 +206,13 @@ def keystrokeStatus(vs):
 def threadStatus(vs) -> str:
     if vs.currentThreads:
         ret = str(vd.checkMemoryUsage())
-        gerunds = [p.gerund for p in vs.progresses if p.gerund] or ['processing']
+        gerunds = [p.gerund for p in vs.progresses if p.gerund] or [f'processing']
+        if vd._queuedFuncs:
+            ret += f' [:working]{len(vd._queuedFuncs)} queued functions[/] '
+
+        if vd._nextCommands:
+            ret += f' [:working]{len(vd._nextCommands)} queued commands[/] '
+
         ret += f' [:working]{vs.progressPct} {gerunds[0]}…[/]'
         return ret
     return ''
@@ -278,7 +279,7 @@ def statusHistorySheet(vd):
     return StatusSheet("status_history", source=vd.statusHistory[::-1])  # in reverse order
 
 
-BaseSheet.addCommand('^P', 'open-statuses', 'vd.push(vd.statusHistorySheet)', 'open Status History')
+BaseSheet.addCommand('Ctrl+P', 'open-statuses', 'vd.push(vd.statusHistorySheet)', 'open Status History')
 
 vd.addMenuItems('''
     View > Statuses > open-statuses

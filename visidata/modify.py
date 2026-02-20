@@ -1,8 +1,9 @@
 from copy import copy
 
-from visidata import vd, VisiData, asyncthread
+from visidata import vd, VisiData, asyncthread, ColumnColorizer
 from visidata import Sheet, RowColorizer, CellColorizer, Column, BaseSheet, Progress
 
+vd.theme_option('color_readonly', 'on 52', 'color for readonly columns')
 vd.theme_option('color_add_pending', 'green', 'color for rows pending add')
 vd.theme_option('color_change_pending', 'reverse yellow', 'color for cells pending modification')
 vd.theme_option('color_delete_pending', 'red', 'color for rows pending delete')
@@ -50,7 +51,8 @@ Sheet.colorizers += [
         RowColorizer(9, 'color_add_pending', lambda s,c,r,v: s.rowid(r) in s._deferredAdds),
         CellColorizer(8, 'color_change_pending', lambda s,c,r,v: c and (r is not None) and s.isChanged(c, r)),
         RowColorizer(9, 'color_delete_pending', lambda s,c,r,v: s.isDeleted(r)),
-        ]
+        ColumnColorizer(9, 'color_readonly', lambda s,c,r,v: c and (r is None) and c.readonly),
+]
 
 @Sheet.api
 def preloadHook(sheet):
@@ -58,6 +60,10 @@ def preloadHook(sheet):
     sheet._deferredAdds.clear()
     sheet._deferredMods.clear()
     sheet._deferredDels.clear()
+
+@Sheet.after
+def afterLoad(sheet):
+    sheet.hasBeenModified = False
 
 @Sheet.api
 def rowAdded(self, row):
@@ -114,7 +120,7 @@ def rowDeleted(self, row):
 @Sheet.api
 @asyncthread
 def addRows(sheet, rows, index=None, undo=True):
-    'Add *rows* after row at *index*.'
+    'Add *rows* after row at *index*, possibly deferred, setting the modified status, and making it undoable if *undo* is True.'
     addedRows = {}
     if index is None: index=len(sheet.rows)
     for i, row in enumerate(Progress(rows, gerund='adding')):
@@ -334,7 +340,7 @@ Sheet.addCommand('ga', 'add-rows', 'n=int(input("add # rows: ", value=1)); addRo
 Sheet.addCommand('za', 'addcol-new', 'addColumnAtCursor(SettableColumn(input("column name: ")))', 'append an empty column')
 Sheet.addCommand('gza', 'addcol-bulk', 'addColumnAtCursor(*(SettableColumn() for c in range(int(input("add columns: ")))))', 'append N empty columns')
 
-Sheet.addCommand('z^S', 'commit-sheet', 'commit()', 'commit changes back to source.  not undoable!')
+Sheet.addCommand('zCtrl+S', 'commit-sheet', 'commit()', 'commit changes back to source.  not undoable!')
 
 vd.addMenuItems('''
     File > Save > changes to source > commit-sheet

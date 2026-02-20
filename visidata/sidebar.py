@@ -12,6 +12,10 @@ vd.theme_option('disp_sidebar_height', 0, 'max height for sidebar')
 vd.theme_option('color_sidebar', 'black on 114 blue', 'base color of sidebar')
 vd.theme_option('color_sidebar_title', 'black on yellow', 'color of sidebar title')
 
+vd.disp_help = 0  # current page of help shown
+vd._help_sidebars = []  # list of (help:str|HelpPane, title:str)
+
+
 @VisiData.api
 class AddedHelp:
     '''Context manager to add help text/screen to list of available sidebars.'''
@@ -210,7 +214,7 @@ class SidebarSheet(TextSheet):
 
 BaseSheet.addCommand('b', 'sidebar-toggle', 'vd.options.disp_sidebar = not vd.options.disp_sidebar', 'toggle sidebar')
 BaseSheet.addCommand('gb', 'open-sidebar', 'sheet.current_sidebar = "" if not hasattr(sheet, "current_sidebar") else sheet.current_sidebar; vd.push(SidebarSheet(name, options.disp_sidebar_fmt, source=sheet.current_sidebar.splitlines()))', 'open sidebar in new sheet')
-BaseSheet.addCommand('^G', 'sidebar-cycle', 'vd.cycleSidebar()', 'cycle through available sidebar panels')
+BaseSheet.addCommand('Ctrl+G', 'sidebar-cycle', 'vd.cycleSidebar()', 'cycle through available sidebar panels')
 
 
 vd.addMenuItems('''

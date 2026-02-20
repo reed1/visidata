@@ -1,5 +1,6 @@
 
 from visidata import VisiData, vd, Sheet, Column, Progress, SequenceSheet, dispwidth
+from visidata import WritableColumn
 
 
 vd.option('fixed_rows', 1000, 'number of rows to check for fixed width columns')
@@ -15,17 +16,17 @@ def getMaxDataWidth(col, rows):  #2255 need real max width for fixed width saver
     even if wider than window. (Slow for large cells!)'''
 
     w = 0
-    nlen = dispwidth(col.name)
+    nlen = dispwidth(col.name, literal=True)
     if len(rows) > 0:
         w_max = 0
         for r in rows:
-            row_w = dispwidth(col.getDisplayValue(r))
+            row_w = dispwidth(col.getDisplayValue(r), literal=True)
             if w_max < row_w:
                 w_max = row_w
         w = w_max
     return max(w, nlen)
 
-class FixedWidthColumn(Column):
+class FixedWidthColumn(WritableColumn):
     def __init__(self, name, i, j, **kwargs):
         super().__init__(name, **kwargs)
         self.i, self.j = i, j
