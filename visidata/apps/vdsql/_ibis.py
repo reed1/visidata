@@ -1,6 +1,7 @@
 from copy import copy
 import threading
 import functools
+import json
 import operator
 import re
 
@@ -45,6 +46,14 @@ def dtype_to_vdtype(dtype):
         # For categoricals and other pandas-defined dtypes
         pass
     return anytype
+
+
+def dtype_to_formatter(dtype):
+    from ibis.expr import datatypes as dt
+
+    if isinstance(dtype, dt.JSON):
+        return 'json'
+    return ''
 
 
 @VisiData.api
@@ -178,6 +187,10 @@ class IbisColumn(ItemColumn):
     @property
     def ibis_type(self):
         return self.sheet.query[self.ibis_name].type()
+
+    def formatter_json(self, fmtstr):
+        # some backends hand back JSON columns already serialised; re-dumping would double-encode them
+        return lambda v, *args, **kwargs: v if isinstance(v, str) else json.dumps(v, default=str)
 
     @asyncthread
     def memo_aggregate(self, agg, rows):
@@ -460,6 +473,7 @@ class IbisTableSheet(Sheet):
 
             self.addColumn(IbisColumn(colname, i,
                            type=dtype_to_vdtype(dtype),
+                           formatter=dtype_to_formatter(dtype),
                            keycol=keycol,
                            ibis_name=colname))
 
