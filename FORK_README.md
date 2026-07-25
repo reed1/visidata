@@ -25,6 +25,14 @@ Swapped uppercase/lowercase key bindings for clipboard operations.
 
 **File Modified**: `visidata/clipboard.py`
 
+### vdsql (Ibis/database app)
+
+Ongoing work on the bundled `vdsql` app: a command to switch databases on a live connection, plus fixes for schema-qualified queries and URL scheme dispatch. Tested against PostgreSQL and MySQL.
+
+See **[visidata/apps/vdsql/FORK_README.md](visidata/apps/vdsql/FORK_README.md)** for the details.
+
+**Files Modified**: `visidata/apps/vdsql/_ibis.py`, `visidata/apps/vdsql/__main__.py`, `visidata/apps/vdsql/bigquery.py`
+
 ### Suppressed Startup Messages
 
 Disabled version info display and MOTD (message of the day) on startup.

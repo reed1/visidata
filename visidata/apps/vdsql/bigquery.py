@@ -53,7 +53,8 @@ class BigqueryDatabaseIndexSheet(Sheet):
 
     def openRow(self, row):
         return IbisTableIndexSheet(row.dataset_id,
-                                   database_name=self.source.name+'.'+row.dataset_id,
+                                   catalog=self.source.name,
+                                   database_name=row.dataset_id,
                                    ibis_con=self.con,
                                    ibis_conpool=IbisConnectionPool(f"{self.source}/{row.dataset_id}"),
                                    source=row,

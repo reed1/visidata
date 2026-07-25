@@ -5,12 +5,15 @@ import operator
 import re
 
 from contextlib import contextmanager
+from urllib.parse import urlsplit, urlunsplit
 from visidata import VisiData, Sheet, IndexSheet, vd, date, anytype, vlen, clipdraw, colors, stacktrace, PyobjSheet, BaseSheet, ExpectedException
 from visidata import ItemColumn, AttrColumn, Column, TextSheet, asyncthread, wrapply, ColumnsSheet, UNLOADED, ExprColumn, undoAttrCopyFunc, Path
 
 vd.option('disp_ibis_sidebar', 'pending_sql', 'which sidebar property to display')
 vd.option('sql_always_count', False, 'whether to include count of total number of results')
 vd.option('ibis_limit', 500, 'max number of rows to get in query')
+
+file_backed_schemes = ['sqlite', 'duckdb']
 
 
 def vdtype_to_ibis_type(t):
@@ -97,6 +100,8 @@ class IbisConnectionPool:
 
 class IbisTableIndexSheet(IndexSheet):
     # sheet_type = IbisTableSheet  # set below
+    catalog = None       # ibis catalog (what most engines call a database); None for the connection default
+    database_name = None  # ibis database (what postgres et al call a schema)
 
     @property
     def con(self):
@@ -112,9 +117,6 @@ class IbisTableIndexSheet(IndexSheet):
 
     def iterload(self):
         with self.con as con:
-            if self.database_name:
-                con.set_database(self.database_name)
-
             # use the actual count instead of the returned limit
             nrows_col = self.column('rows')
             nrows_col.expr = 'countRows'
@@ -132,12 +134,44 @@ class IbisTableIndexSheet(IndexSheet):
                         ibis_source=self.source,
                         ibis_filetype=self.filetype,
                         ibis_conpool=self.ibis_conpool,
-                        database_name=self.database_name,
+                        catalog=self.catalog,
+                        database_name=dbname or self.database_name,
                         table_name=tblname,
                         source=self.source,
                         query=None)
-                    vs.dbname = dbname
                     yield vs
+
+
+class IbisDatabasesSheet(Sheet):
+    rowtype = 'databases'  # rowdef: str (database name)
+    guide = '''
+        # Databases
+        These are the databases available on the current connection.
+
+        - `Enter` to open the database in the current row.  All open sheets are
+          replaced, as if that database had been given on the command line.
+    '''
+    columns = [
+        Column('database', getter=lambda c,r: r),
+        Column('current', type=bool, getter=lambda c,r: r == c.sheet.current_dbname),
+    ]
+    nKeys = 1
+    current_dbname = None
+
+    @property
+    def con(self):
+        return self.source.ibis_conpool.get_conn()
+
+    def iterload(self):
+        with self.con as con:
+            # engines with a namespace above the schema level call that level a catalog;
+            # for the rest (mysql, sqlite) the top-level namespace is the database itself
+            if hasattr(con, 'list_catalogs'):
+                self.current_dbname = con.current_catalog
+                yield from con.list_catalogs()
+            else:
+                self.current_dbname = con.current_database
+                yield from con.list_databases()
 
 
 class IbisColumn(ItemColumn):
@@ -179,7 +213,7 @@ class IbisColumn(ItemColumn):
         self.sheet.query = oldexpr.mutate(fields)
         return expandedCols
 
-IbisTableIndexSheet.columns = [AttrColumn('dbname')] + IbisTableIndexSheet.columns
+IbisTableIndexSheet.columns = [AttrColumn('dbname', 'database_name')] + IbisTableIndexSheet.columns
 
 
 class LazyIbisColMap:
@@ -194,6 +228,9 @@ class LazyIbisColMap:
 
 
 class IbisTableSheet(Sheet):
+    catalog = None       # ibis catalog (what most engines call a database); None for the connection default
+    database_name = None  # ibis database (what postgres et al call a schema)
+
     @property
     def con(self):
         return self.ibis_conpool.get_conn()
@@ -379,17 +416,22 @@ class IbisTableSheet(Sheet):
         self.options.disp_rstatus_fmt = self.options.disp_rstatus_fmt.replace('nRows', 'countRows')
         self.options.disp_rstatus_fmt = self.options.disp_rstatus_fmt.replace('nSelectedRows', 'countSelectedRows')
 
-    def baseQuery(self, con):
-        'Return base table for {database_name}.{table_name}'
-        import ibis
-        tbl = con.table(self.table_name)
-        return ibis.table(tbl.schema(), name=self.fqtblname(con))
+    @property
+    def ibis_namespace(self):
+        'Return database qualifier for con.table(), or None for the connection default.'
+        if not self.database_name:
+            return None
+        if self.catalog:
+            return (self.catalog, self.database_name)
+        return self.database_name
 
-    def fqtblname(self, con) -> str:
-        'Return fully-qualified table name including database/schema, or whatever connection needs to identify this table.'
-        if hasattr(con, '_fully_qualified_name'):
-            return con._fully_qualified_name(self.table_name, self.database_name)
-        return self.table_name
+    def baseQuery(self, con):
+        'Return base table for {catalog}.{database_name}.{table_name}'
+        import ibis
+        tbl = con.table(self.table_name, database=self.ibis_namespace)
+        return ibis.table(tbl.schema(), name=self.table_name,
+                          catalog=self.catalog if self.database_name else None,
+                          database=self.database_name)
 
     def iterload(self):
         with self.con as con:
@@ -722,6 +764,41 @@ def rawSql(sheet, qstr):
                           source=qstr,
                           query=con.sql(qstr))
 
+@IbisTableIndexSheet.api
+def databasesSheet(sheet):
+    return IbisDatabasesSheet(sheet.name, 'databases', source=sheet)
+
+
+@IbisTableIndexSheet.api
+def sourceForDatabase(sheet, dbname:str) -> Path:
+    'Return source Path for connecting to *dbname* on the same server as this sheet.'
+    if not isinstance(sheet.source, Path) or not sheet.source.is_url():
+        vd.fail('can only change database for a connection url')
+
+    url = urlsplit(str(sheet.source))
+    # a sqlite/duckdb url is really a local file, so there is no other database to connect to
+    if not url.netloc or url.scheme in file_backed_schemes:
+        vd.fail(f'can only change database for a server connection, not {url.scheme}')
+
+    # the database is the first path segment; keep anything after it (like a snowflake schema)
+    rest = url.path.split('/')[2:]
+    return Path(urlunsplit(url._replace(path='/'.join(['', dbname] + rest))))
+
+
+@IbisTableIndexSheet.api
+def set_database(sheet, dbname:str):
+    'Reconnect to *dbname*, replacing all open sheets as if it had been opened from the command line.'
+    src = sheet.sourceForDatabase(dbname)
+    vs = type(sheet)(src.base_stem, source=src, filetype=sheet.filetype,
+                     ibis_conpool=IbisConnectionPool(src),
+                     sheet_type=sheet.sheet_type)
+
+    for oldsheet in list(vd.sheets):
+        vd.remove(oldsheet)
+
+    vd.push(vs)
+
+
 class IbisFreqTable(IbisTableSheet):
     def freqExpr(self, row):
         # matching key of grouped columns
@@ -782,6 +859,9 @@ IbisTableSheet.addCommand('z\\', 'unselect-expr', 'expr=inputExpr("unselect by e
 
 IbisFreqTable.addCommand('gEnter', 'open-selected', 'vd.push(openRows(selectedRows))')
 IbisTableIndexSheet.addCommand('', 'exec-sql', 'vd.push(rawSql(input("SQL query: ")))', 'open sheet with results of raw SQL query')
+IbisTableIndexSheet.addCommand('o', 'open-databases', 'vd.push(databasesSheet())', 'open list of databases on this connection')
+IbisTableIndexSheet.addCommand('', 'set-database', 'set_database(input("database: "))', 'reconnect to given database, replacing all open sheets')
+IbisDatabasesSheet.addCommand('Enter', 'set-database', 'source.set_database(cursorRow)', 'reconnect to database in current row, replacing all open sheets')
 
 IbisTableIndexSheet.class_options.postgres_schema = ''
 IbisTableIndexSheet.class_options.load_lazy = True
