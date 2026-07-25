@@ -109,6 +109,19 @@ class IbisConnectionPool:
 
 class IbisTableIndexSheet(IndexSheet):
     # sheet_type = IbisTableSheet  # set below
+    rowtype = 'tables'  # rowdef: IbisTableSheet
+    guide = '''
+        # Tables
+        These are the tables available on the current connection.
+
+        - `Enter` to open the table in the current row.
+        - `g Enter` to open all selected tables.
+    '''
+    columns = [
+        AttrColumn('table', 'table_name'),
+    ]
+    nKeys = 1
+
     catalog = None       # ibis catalog (what most engines call a database); None for the connection default
     database_name = None  # ibis database (what postgres et al call a schema)
 
@@ -126,16 +139,12 @@ class IbisTableIndexSheet(IndexSheet):
 
     def iterload(self):
         with self.con as con:
-            # use the actual count instead of the returned limit
-            nrows_col = self.column('rows')
-            nrows_col.expr = 'countRows'
-            nrows_col.width += 3
-
             schemas = self.options.postgres_schema.split()
 
+            # without an explicit schema list, use the connection default and skip the lookup entirely
             dbnames = [dbname
                        for dbname in con.list_databases()
-                       if '*' in schemas or dbname in schemas]
+                       if '*' in schemas or dbname in schemas] if schemas else []
 
             for dbname in dbnames or [None]:
                 for tblname in con.list_tables(database=dbname):
@@ -225,8 +234,6 @@ class IbisColumn(ItemColumn):
     #    self.sheet.query = oldexpr.drop([struct_field.get_name()]).mutate(fields)
         self.sheet.query = oldexpr.mutate(fields)
         return expandedCols
-
-IbisTableIndexSheet.columns = [AttrColumn('dbname', 'database_name')] + IbisTableIndexSheet.columns
 
 
 class LazyIbisColMap:

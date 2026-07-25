@@ -38,6 +38,18 @@ MySQL needs no database in the URL. Ibis then reports no current database, so th
 
 **Files modified**: `_ibis.py`
 
+## Change: Tables Index Shows Only Table Names
+
+The tables index inherited `IndexSheet`'s columns (`name`, `rows`, `cols`, `keys`, `source`) plus a fork-added `dbname`, and its rowtype was `sheets`. For a database connection that is mostly noise: `rows`/`cols`/`keys` stay empty until a table is actually opened (ibis sheets set `load_lazy`), and `source` repeats the same connection URL on every line.
+
+It is now a single `table` column listing table names, with rowtype `tables` (so the right status reads `7 tables`) and a guide of its own. Rows are still `IbisTableSheet` objects, so every interaction is unchanged: `Enter` opens the table, `g Enter` opens all selected, `g Ctrl+R`, `gC`, `g>`/`g<` and the `o`/`exec-sql` commands all still work.
+
+`iterload()` no longer retargets the `rows` column at `countRows`, and no longer calls `con.list_databases()` when `postgres_schema` is unset — that call's result was discarded in that case anyway, so this drops one metadata round-trip at connect time. The per-table listing was already a single `con.list_tables()` per schema; no query was ever issued for the dropped columns.
+
+With `--postgres-schema` listing more than one schema, tables from different schemas now appear under the same bare name. The schema each sheet queries is still on the table sheet itself (`database_name`).
+
+**Files modified**: `_ibis.py`
+
 ## Bugfixes
 
 ### `database_name` never reached the query
