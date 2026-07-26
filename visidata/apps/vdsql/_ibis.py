@@ -82,8 +82,11 @@ def open_vdsql(vd, p, filetype=None):
     elif not p.is_url() and p.ext in ('sqlite', 'sqlite3'):
         p = Path(f'sqlite://{p}')
 
-    return IbisTableIndexSheet(p.base_stem, source=p, filetype=None, database_name=None,
-                               ibis_conpool=IbisConnectionPool(p), sheet_type=IbisTableSheet)
+    vs = IbisTableIndexSheet(p.base_stem, source=p, filetype=None, database_name=None,
+                             ibis_conpool=IbisConnectionPool(p), sheet_type=IbisTableSheet)
+
+    # with no database in the dsn, the table list is whatever the server defaults to; ask which database instead
+    return vs.databasesSheet() if vs.needs_database else vs
 
 
 vd.open_ibis = vd.open_vdsql
@@ -129,6 +132,19 @@ class IbisTableIndexSheet(IndexSheet):
     def con(self):
         return self.ibis_conpool.get_conn()
 
+    @property
+    def needs_database(self):
+        'True if source is a server url with no database named in it.'
+        if not isinstance(self.source, Path) or not self.source.is_url():
+            return False
+
+        url = urlsplit(str(self.source))
+        # a sqlite/duckdb url is really a local file, and has no database to choose
+        if not url.netloc or url.scheme in file_backed_schemes:
+            return False
+
+        return not url.path.strip('/')
+
     def rawSql(self, qstr):
         with self.con as con:
             return IbisTableSheet('rawsql',
@@ -171,7 +187,7 @@ class IbisDatabasesSheet(Sheet):
     '''
     columns = [
         Column('database', getter=lambda c,r: r),
-        Column('current', type=bool, getter=lambda c,r: r == c.sheet.current_dbname),
+        Column('is_current', getter=lambda c,r: 'Y' if r == c.sheet.current_dbname else ''),
     ]
     nKeys = 1
     current_dbname = None

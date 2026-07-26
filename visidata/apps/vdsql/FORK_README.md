@@ -14,7 +14,9 @@ Tested working against **PostgreSQL** and **MySQL**.
 | `Enter` | `set-database` | databases | reconnect to the database in the current row |
 | (unbound) | `set-database` | tables index | reconnect to a database entered by name |
 
-The databases sheet lists `con.list_catalogs()`, falling back to `con.list_databases()` on engines with no catalog level (MySQL, SQLite), and marks the connection's current database in the `current?` column.
+The databases sheet lists `con.list_catalogs()`, falling back to `con.list_databases()` on engines with no catalog level (MySQL, SQLite), and marks the connection's current database with `Y` in the `is_current` column.
+
+When the connection url names no database at all (`mysql://user:pass@host:7001`, `postgres://user:pass@host:5432/`), the databases sheet is what `vdsql` opens *first*, instead of a table index of whatever the server happened to default to. The check is on the url only — a path segment after the host counts as a database, and file-backed urls (`sqlite://`, `duckdb://`) never trigger it.
 
 `set-database` rewrites the database in the connection URL, opens a fresh index sheet on a new connection pool, and removes every other open sheet — the same state as launching `vdsql` against that database directly. Server, credentials, and URL options are untouched; only the first path segment changes, so anything after it (such as a Snowflake schema) is kept.
 
@@ -34,7 +36,7 @@ Not supported for file-backed sources (`sqlite://`, `duckdb://`) — there is no
 
     vdsql 'mysql://user:pass@127.0.0.1:7001'
 
-MySQL needs no database in the URL. Ibis then reports no current database, so the `current?` column is empty and the initial index sheet lists ~1500 `information_schema` tables — press `o` immediately and pick one, or put the database in the URL to start somewhere useful.
+MySQL needs no database in the URL, and that is exactly the case that now opens on the databases sheet — previously it landed on an index of ~1500 `information_schema` tables. Ibis reports no current database, so `is_current` is empty for every row.
 
 **Files modified**: `_ibis.py`
 
