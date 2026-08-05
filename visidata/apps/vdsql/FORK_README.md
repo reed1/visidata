@@ -52,6 +52,24 @@ With `--postgres-schema` listing more than one schema, tables from different sch
 
 **Files modified**: `_ibis.py`
 
+## Change: Key Columns Default To The Table's Primary Key
+
+`s` (`select-row`) and `u` (`unselect-row`) were no-ops on a freshly opened table. vdsql does not keep an in-memory selection set — it compiles selection into a SQL `WHERE` clause, built by `matchRowKeyExpr()` from the sheet's key columns — so with no key column there is nothing to put in the `WHERE`, and `select_row()` fails with `need key column to select individual rows`. `reloadColumns()` only ever re-applied keys the sheet already had, and a table sheet starts with none, so every table opened keyless and the fix (`!` on a unique column) was undiscoverable.
+
+Key columns now default to the source table's primary key, in declared key order. `pktable (id INTEGER PRIMARY KEY, …)` opens with `id` already pinned, and `PRIMARY KEY (b, a)` pins `b` then `a` regardless of where those columns sit in the table.
+
+The lookup joins `information_schema.table_constraints` to `key_column_usage`, filtered to the sheet's `table_name` and to `database_name` (falling back to `con.current_database`), ordered by `ordinal_position`. It runs at most once per sheet — cached in `_source_keycols` — and only when the sheet has no key columns, so a manual `!` still wins and derived sheets (group-by, joins) pay nothing once they have their own keys.
+
+Tables with no primary key are unchanged: `s` still fails, with the same message.
+
+### Per-engine behaviour
+
+Gated on `pk_constraint_backends` (`postgres`, `risingwave`, `mysql`) — the backends whose `information_schema` reports primary key constraints through the standard views. Every other backend returns no key columns without issuing a query, so SQLite, DuckDB, BigQuery, Snowflake and ClickHouse behave exactly as before. Adding a backend that populates those views is a one-line change.
+
+Verified against PostgreSQL (single-column, composite, and no-primary-key tables) and SQLite (gate short-circuits, table loads unchanged). MySQL follows the same standard views but was not exercised.
+
+**Files modified**: `_ibis.py`
+
 ## Bugfixes
 
 ### `database_name` never reached the query

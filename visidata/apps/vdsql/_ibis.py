@@ -16,6 +16,9 @@ vd.option('ibis_limit', 500, 'max number of rows to get in query')
 
 file_backed_schemes = ['sqlite', 'duckdb']
 
+# backends whose information_schema reports primary key constraints in the standard views
+pk_constraint_backends = ['postgres', 'risingwave', 'mysql']
+
 
 def vdtype_to_ibis_type(t):
     from ibis.expr import datatypes as dt
@@ -266,6 +269,7 @@ class LazyIbisColMap:
 class IbisTableSheet(Sheet):
     catalog = None       # ibis catalog (what most engines call a database); None for the connection default
     database_name = None  # ibis database (what postgres et al call a schema)
+    table_name = None    # name of the source table within that namespace
 
     @property
     def con(self):
@@ -461,6 +465,34 @@ class IbisTableSheet(Sheet):
             return (self.catalog, self.database_name)
         return self.database_name
 
+    def primaryKeyColumns(self, con):
+        'Return names of the primary key columns of table_name, in key order.  Empty if the backend does not report them.'
+        if con.name not in pk_constraint_backends:
+            return []
+
+        constraints = con.table('table_constraints', database='information_schema')
+        usage = con.table('key_column_usage', database='information_schema')
+
+        pk = (constraints.filter(constraints.constraint_type == 'PRIMARY KEY',
+                                 constraints.table_name == self.table_name,
+                                 constraints.table_schema == (self.database_name or con.current_database))
+                         .join(usage, ['constraint_catalog', 'constraint_schema', 'constraint_name'])
+                         .order_by('ordinal_position')
+                         .select('column_name'))
+
+        return list(con.execute(pk)['column_name'])
+
+    @property
+    def source_keycols(self):
+        'Names of the primary key columns of the source table, in key order.  Queried once per sheet.'
+        if self._source_keycols is None:
+            if not self.table_name:
+                self._source_keycols = []
+            else:
+                with self.con as con:
+                    self._source_keycols = self.primaryKeyColumns(con)
+        return self._source_keycols
+
     def baseQuery(self, con):
         'Return base table for {catalog}.{database_name}.{table_name}'
         import ibis
@@ -482,11 +514,13 @@ class IbisTableSheet(Sheet):
 
 
     def reloadColumns(self, expr, start=1):
-        oldkeycols = {c.name:c for c in self.keyCols}
+        # columns are reset before every load, so fall back to the source table's primary key
+        keycols = {c.name: c.keycol for c in self.keyCols} or \
+                  {colname: i+1 for i, colname in enumerate(self.source_keycols)}
         self._nrows_col = -1
 
         for i, (colname, dtype) in enumerate(expr.schema().items(), start=start):
-            keycol=oldkeycols.get(colname, Column()).keycol
+            keycol=keycols.get(colname, 0)
             if i-start < self.nKeys:
                 keycol = i+1
 
@@ -653,6 +687,7 @@ def ibis_aggr(col, aggname):
 
 
 IbisTableSheet.init('ibis_selection', list, copy=False)
+IbisTableSheet.init('_source_keycols', lambda: None, copy=True)
 IbisTableSheet.init('_sqlscr', lambda: None, copy=False)
 IbisTableSheet.init('query_result', lambda: None, copy=False)
 IbisTableSheet.init('ibis_conpool', lambda: None, copy=True)
