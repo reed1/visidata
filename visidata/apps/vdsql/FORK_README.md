@@ -85,6 +85,16 @@ The `dbname` column on the index sheet now reads from `database_name` rather tha
 
 **Files modified**: `_ibis.py`
 
+### `no column` warning on every table load
+
+Opening any table raised `[10x] no column ` — with an empty column name — and left it on screen until the next keystroke.
+
+`reload()` empties `self.columns` before `iterload()` repopulates them, and for that window `visibleCols` substitutes a single unnamed placeholder `Column` so the drawing code always has something to lay out. The sidebar keeps drawing throughout: `sidebarStatus` probes `help_sidebars`, which evaluates all four SQL sidebars, each of which calls `get_current_expr()`, which walked `visibleCols`, asked the placeholder for an ibis expression, and warned when it got `None` back. Several frames of that is the `10x`.
+
+`get_current_expr()` now skips columns that are not on the sheet. Nothing was ever missing from the query — the warning was cosmetic — but it also covers the case where every real column is hidden, which produces the same placeholder. A column that genuinely cannot compile still warns, by name.
+
+**Files modified**: `_ibis.py`
+
 ### `postgresql://` URLs bypassed vdsql entirely
 
 `__main__.py` overrides `vd.openurl_<backend>` using Ibis's backend entry-point names, which include `postgres` but not `postgresql`. VisiData's builtin `openurl_postgresql` therefore won, and `vdsql postgresql://…` silently loaded a builtin `PgTablesSheet` with no Ibis, no SQL sidebar, and none of the vdsql commands. Only `postgres://` reached vdsql.
