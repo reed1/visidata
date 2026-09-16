@@ -58,7 +58,7 @@ With `--postgres-schema` listing more than one schema, tables from different sch
 
 Key columns now default to the source table's primary key, in declared key order. `pktable (id INTEGER PRIMARY KEY, …)` opens with `id` already pinned, and `PRIMARY KEY (b, a)` pins `b` then `a` regardless of where those columns sit in the table.
 
-The lookup joins `information_schema.table_constraints` to `key_column_usage`, filtered to the sheet's `table_name` and to `database_name` (falling back to `con.current_database`), ordered by `ordinal_position`. It runs at most once per sheet — cached in `_source_keycols` — and only when the sheet has no key columns, so a manual `!` still wins and derived sheets (group-by, joins) pay nothing once they have their own keys.
+The lookup joins `information_schema.table_constraints` to `key_column_usage` on `constraint_catalog`, `constraint_schema`, `constraint_name` and `table_name`, filtered to the sheet's `table_name` and to `database_name` (falling back to `con.current_database`), ordered by `ordinal_position`. Both views are lowercased with `rename(str.lower)` first, because MySQL spells `information_schema` column names in upper case while PostgreSQL spells them in lower case. `table_name` is a join key as well as a filter because MySQL names every primary key constraint `PRIMARY`, so `(catalog, schema, name)` alone matches the primary key of every table in the database. It runs at most once per sheet — cached in `_source_keycols` — and only when the sheet has no key columns, so a manual `!` still wins and derived sheets (group-by, joins) pay nothing once they have their own keys.
 
 Tables with no primary key are unchanged: `s` still fails, with the same message.
 
@@ -66,7 +66,7 @@ Tables with no primary key are unchanged: `s` still fails, with the same message
 
 Gated on `pk_constraint_backends` (`postgres`, `risingwave`, `mysql`) — the backends whose `information_schema` reports primary key constraints through the standard views. Every other backend returns no key columns without issuing a query, so SQLite, DuckDB, BigQuery, Snowflake and ClickHouse behave exactly as before. Adding a backend that populates those views is a one-line change.
 
-Verified against PostgreSQL (single-column, composite, and no-primary-key tables) and SQLite (gate short-circuits, table loads unchanged). MySQL follows the same standard views but was not exercised.
+Verified against PostgreSQL (single-column, composite, and no-primary-key tables), MySQL (single-column keys, upper-case `information_schema`, `PRIMARY` constraint names), and SQLite (gate short-circuits, table loads unchanged).
 
 **Files modified**: `_ibis.py`
 

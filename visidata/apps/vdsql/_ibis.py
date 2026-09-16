@@ -472,13 +472,15 @@ class IbisTableSheet(Sheet):
         if con.name not in pk_constraint_backends:
             return []
 
-        constraints = con.table('table_constraints', database='information_schema')
-        usage = con.table('key_column_usage', database='information_schema')
+        # mysql spells information_schema columns in upper case, postgres in lower
+        constraints = con.table('table_constraints', database='information_schema').rename(str.lower)
+        usage = con.table('key_column_usage', database='information_schema').rename(str.lower)
 
+        # mysql names every primary key constraint PRIMARY, so table_name has to be a join key too
         pk = (constraints.filter(constraints.constraint_type == 'PRIMARY KEY',
                                  constraints.table_name == self.table_name,
                                  constraints.table_schema == (self.database_name or con.current_database))
-                         .join(usage, ['constraint_catalog', 'constraint_schema', 'constraint_name'])
+                         .join(usage, ['constraint_catalog', 'constraint_schema', 'constraint_name', 'table_name'])
                          .order_by('ordinal_position')
                          .select('column_name'))
 
